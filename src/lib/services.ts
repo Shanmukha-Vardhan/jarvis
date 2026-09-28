@@ -142,12 +142,12 @@ export function evaluateBikeDecision(weather: WeatherData): BikeDecision {
   };
 }
 
-// 3. News Fetcher (AI/Tech + Local)
+// 3. News Fetcher (High-Relevance AI, Apple, Developer, Tech)
 export async function getFilteredNews(): Promise<NewsItem[]> {
   const apiKey = process.env.GNEWS_API_KEY || "";
   try {
     const res = await fetch(
-      `https://gnews.io/api/v4/top-headlines?category=technology&lang=en&max=5&apikey=${apiKey}`,
+      `https://gnews.io/api/v4/top-headlines?category=technology&lang=en&max=10&apikey=${apiKey}`,
       { next: { revalidate: 3600 } } // Cache 1 hour
     );
 
@@ -160,7 +160,47 @@ export async function getFilteredNews(): Promise<NewsItem[]> {
       return [];
     }
 
-    return data.articles.slice(0, 4).map((art: any) => ({
+    // High relevance keywords for developer, AI, Apple, and frontier tech
+    const positiveKw = [
+      "ai", "artificial intelligence", "llm", "apple", "iphone", "mac", "google",
+      "openai", "model", "software", "tech", "chip", "cyber", "robot", "security",
+      "developer", "coding", "startup", "india"
+    ];
+    // Exclude noise, retail footwear, celebrity gossip, and non-tech clickbait
+    const negativeKw = [
+      "shoe", "sneaker", "colorway", "beer", "gossip", "deal", "discount", "sale",
+      "fashion", "nfl", "football", "horoscope"
+    ];
+
+    const scored = data.articles
+      .map((art: any) => {
+        const text = `${art.title || ""} ${art.description || ""}`.toLowerCase();
+        let score = 0;
+        for (const kw of positiveKw) {
+          if (text.includes(kw)) score += 2;
+        }
+        for (const neg of negativeKw) {
+          if (text.includes(neg)) score -= 10;
+        }
+        return {
+          title: art.title?.trim() || "",
+          description: art.description?.trim() || "",
+          source: art.source?.name || "Tech News",
+          url: art.url || "",
+          publishedAt: art.publishedAt || new Date().toISOString(),
+          score,
+        };
+      })
+      .filter((art: any) => art.score > 0)
+      .sort((a: any, b: any) => b.score - a.score)
+      .slice(0, 3);
+
+    if (scored.length > 0) {
+      return scored.map(({ score, ...item }: any) => item);
+    }
+
+    // Fallback to top 2 if score filter was too strict
+    return data.articles.slice(0, 2).map((art: any) => ({
       title: art.title,
       description: art.description || "",
       source: art.source?.name || "Tech News",
@@ -168,7 +208,7 @@ export async function getFilteredNews(): Promise<NewsItem[]> {
       publishedAt: art.publishedAt,
     }));
   } catch (error) {
-    console.warn("GNews fetch failed:", error);
+    console.warn("GNews fetch failed, using fallback:", error);
     return [
       {
         title: "Apple & OpenAI AI integration updates for developers",
@@ -178,8 +218,8 @@ export async function getFilteredNews(): Promise<NewsItem[]> {
         publishedAt: new Date().toISOString(),
       },
       {
-        title: "Next-gen LLM coding benchmarks and reasoning advances",
-        description: "Frontier multimodal reasoning agents set new records in engineering tasks.",
+        title: "Frontier reasoning models set new benchmarks for software engineering",
+        description: "Next-generation multimodal reasoning agents achieve breakthrough performance.",
         source: "Ars Technica",
         url: "https://news.ycombinator.com",
         publishedAt: new Date().toISOString(),

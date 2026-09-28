@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getLiveWeather, evaluateBikeDecision, getFilteredNews, getGitamAttendance } from "@/lib/services";
 import { getTodayClasses } from "@/lib/timetableData";
 import { fetchTasks, TaskItem } from "@/lib/firebase";
-import { generateDailyBriefingText, BriefingContext } from "@/lib/gemini";
+import { generateDailyBriefingResult, getNowIST, BriefingContext } from "@/lib/gemini";
 
 export const dynamic = "force-dynamic";
 
@@ -11,13 +11,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format"); // "text" or "json"
 
-    const now = new Date();
-    const currentDay = now.toLocaleDateString("en-US", { weekday: "long" });
-    const currentDateStr = now.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    const ist = getNowIST();
+    const currentDay = ist.dayOfWeek;
+    const currentDateStr = `${ist.calendarMap[0]?.weekday}, ${ist.calendarMap[0]?.dateStr}`;
 
     // 1. Gather all data concurrently
     const [weather, news, attendance, allTasks] = await Promise.all([
@@ -38,9 +34,9 @@ export async function GET(request: Request) {
       courseName: c.courseName,
     }));
 
-    // 4. Deadlines (Today vs Upcoming 2-3 days)
-    const todayStr = now.toISOString().slice(0, 10);
-    const threeDaysLater = new Date(now.getTime() + 3 * 86400000).toISOString().slice(0, 10);
+    // 4. Deadlines in IST (Today vs Upcoming 2-3 days)
+    const todayStr = ist.currentDateStr; // YYYY-MM-DD
+    const threeDaysLater = ist.calendarMap[3]?.dateStr || todayStr;
 
     const activeTasks = allTasks.filter((t) => !t.completed);
     const todayDeadlines = activeTasks.filter((t) => t.dueDate.startsWith(todayStr));
@@ -52,7 +48,7 @@ export async function GET(request: Request) {
     // 5. Construct Context
     const ctx: BriefingContext = {
       userName: process.env.USER_NAME || "Shanmukha",
-      currentDateStr,
+      currentDateStr: ist.currentDateStr,
       currentDay,
       weather: {
         temp: weather.temp,
@@ -63,6 +59,7 @@ export async function GET(request: Request) {
         verdict: bikeDecision.verdict,
         title: bikeDecision.title,
         reason: bikeDecision.reason,
+        details: bikeDecision.details,
       },
       todayClasses,
       todayDeadlines: todayDeadlines.map((t) => ({
@@ -81,11 +78,13 @@ export async function GET(request: Request) {
       attendance: {
         overallPercentage: attendance.overallPercentage,
         bunksRemaining: attendance.bunksRemaining,
+        shortageCourses: attendance.shortageCourses,
       },
     };
 
     // 6. Generate AI Briefing
-    const speechText = await generateDailyBriefingText(ctx);
+    const briefingResult = await generateDailyBriefingResult(ctx);
+    const speechText = briefingResult.spoken_briefing;
 
     if (format === "text") {
       // Plain text response if iPhone shortcut requests text directly
@@ -96,9 +95,14 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       status: "success",
+      spoken_briefing: speechText,
       speech: speechText,
       text: speechText,
-      date: currentDateStr,
+      bike_decision: briefingResult.bike_decision,
+      bike_reason: briefingResult.bike_reason,
+      priority: briefingResult.priority,
+      sections: briefingResult.sections,
+      date: ist.currentDateStr,
       day: currentDay,
       weather,
       bikeDecision,
