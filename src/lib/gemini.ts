@@ -56,10 +56,10 @@ export interface VoiceCommandResponse {
 }
 
 const CANDIDATE_MODELS = [
-  "gemini-3.5-flash-lite",
-  "gemini-3.8-flash",
+  "gemini-3.1-flash-lite",
   "gemini-flash-latest",
-  "gemini-2.5-flash",
+  "gemini-3.8-flash",
+  "gemini-3.5-flash-lite",
 ];
 
 async function callGemini(prompt: string, systemInstruction?: string): Promise<string> {
@@ -92,7 +92,7 @@ async function callGemini(prompt: string, systemInstruction?: string): Promise<s
           contents,
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 1000,
+            maxOutputTokens: 600,
           },
         }),
       });
@@ -104,11 +104,38 @@ async function callGemini(prompt: string, systemInstruction?: string): Promise<s
         if (text) return text;
       }
     } catch (e) {
-      // try next model
+      // try next candidate model
     }
   }
 
   throw new Error("All Gemini models temporarily unavailable");
+}
+
+function formatClassesNaturally(classes: Array<{ time: string; courseCode: string; courseName: string }>): string {
+  if (!classes || classes.length === 0) return "Schedule's wide open today, zero classes.";
+
+  const friendlyNames: Record<string, string> = {
+    "19EID401": "Financial Management",
+    "19ECB431": "Usability",
+    "19ECB447": "Cognitive Science",
+    "19ECB455": "ASTMA",
+    "19ECB433P": "IT Workshop Lab",
+    "19ECB433": "IT Workshop",
+    "19EID403": "HRM",
+    "19ECB491": "Project Evaluation",
+  };
+
+  const formatted = classes.map((c) => {
+    const name = friendlyNames[c.courseCode] || c.courseName.split(" ")[0];
+    const match = c.time.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    const timeStr = match ? `${parseInt(match[1])} ${match[3]}` : c.time;
+    return `${name} at ${timeStr}`;
+  });
+
+  if (formatted.length === 1) return `You've got just ${formatted[0]} today.`;
+  const firstOnes = formatted.slice(0, -1).join(", ");
+  const lastOne = formatted[formatted.length - 1];
+  return `You've got ${firstOnes}, and ${lastOne}.`;
 }
 
 // 1. Natural Language Task Parser ("tomorrow at 12 i should submit assignment")
@@ -119,28 +146,24 @@ export async function parseNaturalLanguageTask(userInput: string): Promise<Parse
   const currentDay = now.toLocaleDateString("en-US", { weekday: "long" });
 
   const prompt = `
-You are a task extractor for a personal productivity system.
-Current Date: ${currentDateStr} (${currentDay}), Current Time: ${currentTimeStr}.
+Extract assignment/task details from this user input: "${userInput}".
+Current Date: ${currentDateStr} (${currentDay}), Time: ${currentTimeStr}.
 
-Extract the assignment/task details from this user sentence:
-"${userInput}"
-
-Available Courses at GITAM for the user:
+Available GITAM courses:
 - Financial Management (19EID401)
-- Usability Design of Software Applications (19ECB431)
-- Cognitive Science and Analytics (19ECB447)
-- Advanced Social, Text and Media Analytics (ASTMA / 19ECB455)
-- IT workshop skylab / matlab (19ECB433)
-- Human Resource Management (HRM / 19EID403)
-- Project Evaluation I (19ECB491)
+- Usability Design (19ECB431)
+- Cognitive Science (19ECB447)
+- ASTMA (19ECB455)
+- IT Workshop (19ECB433)
+- HRM (19EID403)
+- Project Evaluation (19ECB491)
 
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON:
 {
-  "title": "string (short, clean title of what needs to be done)",
-  "course": "string (e.g. 'ASTMA', 'Financial Management', 'HRM', or 'General')",
-  "dueDate": "string in YYYY-MM-DDTHH:mm format. Resolve relative dates like 'tomorrow', 'friday', 'today at 12', 'next wednesday' accurately based on the current date ${currentDateStr})",
-  "priority": "'high' | 'medium' | 'low'",
-  "notes": "string (optional extra context)"
+  "title": "clean title",
+  "course": "course name or General",
+  "dueDate": "YYYY-MM-DDTHH:mm",
+  "priority": "high|medium|low"
 }
 `;
 
@@ -156,9 +179,7 @@ Return ONLY valid JSON matching this schema:
       priority: parsed.priority || "medium",
       notes: parsed.notes || "",
     };
-  } catch (error) {
-    console.warn("Gemini parse failed, using rule-based fallback:", error);
-    // Simple fallback
+  } catch {
     const tomorrow = new Date(Date.now() + 86400000);
     tomorrow.setHours(12, 0, 0, 0);
     return {
@@ -172,71 +193,61 @@ Return ONLY valid JSON matching this schema:
 
 // 2. Generate Daily Briefing for iPhone Shortcut & Web
 export async function generateDailyBriefingText(ctx: BriefingContext): Promise<string> {
+  const topNewsTitle = ctx.news?.[0]?.title ? `"${ctx.news[0].title}"` : "tech developments in AI and mobile";
+
   const prompt = `
-Generate a concise, spoken daily morning briefing for ${ctx.userName}.
-This briefing will be read aloud by Siri on their iPhone at 6:30 AM.
+You are JARVIS, personal assistant and close friend to Shanmukha (call him Shanmukha or Boss).
+Generate his spoken morning briefing for 6:30 AM Siri.
 
 Context:
-- Current Day & Date: ${ctx.currentDay}, ${ctx.currentDateStr}
 - Weather: ${ctx.weather.temp}°C, ${ctx.weather.description}, Rain Risk: ${ctx.weather.rainProbability}%
-- Commute & Bike Decision: ${ctx.bikeDecision.verdict} (${ctx.bikeDecision.reason}). Distance: Gopalapatnam to GITAM University Rushikonda (~40 mins).
-- Today's Classes: ${
-    ctx.todayClasses.length > 0
-      ? ctx.todayClasses.map((c) => `${c.courseName} at ${c.time}`).join(", ")
-      : "No scheduled classes today (Day off / Weekend)"
-  }
-- Today's Deadlines: ${
-    ctx.todayDeadlines.length > 0
-      ? ctx.todayDeadlines.map((d) => `${d.title} (${d.course || "General"}) due at ${d.dueDate.slice(11, 16) || "end of day"}`).join(", ")
-      : "None due today"
-  }
-- Upcoming Deadlines (next 2-3 days): ${
-    ctx.upcomingDeadlines.length > 0
-      ? ctx.upcomingDeadlines.map((d) => `${d.title} on ${d.dueDate.slice(0, 10)}`).join(", ")
-      : "Nothing major in the next 48 hours"
-  }
-- Attendance Stats: Overall ${ctx.attendance.overallPercentage}%, ${ctx.attendance.bunksRemaining} safe bunks left.
-- Top Tech News: ${ctx.news.map((n) => n.title).slice(0, 2).join("; ")}
+- Bike verdict: ${ctx.bikeDecision.verdict} (${ctx.bikeDecision.reason})
+- Today's classes: ${ctx.todayClasses.map((c) => `${c.courseName} at ${c.time.split(" - ")[0]}`).join(", ") || "None"}
+- Deadlines today: ${ctx.todayDeadlines.map((d) => `${d.title} at ${d.dueDate.slice(11, 16)}`).join(", ") || "None"}
+- Upcoming deadlines: ${ctx.upcomingDeadlines.map((d) => d.title).join(", ") || "None"}
+- Attendance: ${ctx.attendance.overallPercentage}% (${ctx.attendance.bunksRemaining} safe bunks left)
+- Tech News Headline: ${topNewsTitle}
 
-Persona Guidelines:
-- Combine JARVIS intelligence with a smart close friend vibe (natural Gen-Z tone).
-- Address them naturally as "Shanmukha" or "Boss".
-- Do NOT sound like a corporate robot. But also do NOT force cringe slang into every sentence.
-- Be crisp, practical, and conversational.
-- Include the bike verdict clearly (mentioning the 40 min ride to GITAM).
-- Summarize classes simply (e.g., "You've got FM at 8, Usability at 9...").
-- Keep news to 1 or 2 quick sentences on what actually matters.
-- End with one direct, no-bullshit daily focus/motivation line (e.g., "Finish before you optimize" or "Get the SNA assignment out of the way before tonight-you starts negotiating with tomorrow-you").
-- Keep total length between 130 and 180 words so Siri speaks it smoothly in under 60 seconds.
+Rules:
+- Sound like a smart best friend: relaxed, intelligent, Gen-Z vibe. NO corporate robotic bullet-list talk.
+- NEVER list classes like "Financial Management at 08:00 AM - 09:00 AM, Usability Design...". Speak naturally like "You've got FM at 8, Usability at 9, Cognitive Science at 10..."
+- Include the bike verdict clearly for his 40-min ride to GITAM.
+- Mention the top tech news in one natural sentence.
+- End with one direct, no-bullshit daily focus punchline.
+- Keep it under 150 words total so it speaks smoothly in under 50 seconds.
 `;
 
   try {
     const briefing = await callGemini(prompt);
     return briefing.trim();
   } catch (error) {
-    console.warn("Gemini briefing generation failed, using intelligent template:", error);
     const bikeTxt =
       ctx.bikeDecision.verdict === "TAKE_BIKE"
-        ? `Weather is clean at ${ctx.weather.temp} degrees with ${ctx.weather.rainProbability}% rain risk. Bike is a yes for your 40-minute commute to GITAM.`
-        : `Rain risk is at ${ctx.weather.rainProbability}%. Skip the bike today and take a cab or bus to GITAM.`;
+        ? `Weather's clean today at ${ctx.weather.temp} degrees, ${ctx.weather.description.toLowerCase()}, with basically no rain risk during your commute. Bike is a yes.`
+        : `Rain risk is sitting at ${ctx.weather.rainProbability}%. Skip the bike today, take a cab or bus to GITAM.`;
 
-    const classTxt =
-      ctx.todayClasses.length > 0
-        ? `You have ${ctx.todayClasses.length} classes today: ${ctx.todayClasses.map((c) => `${c.courseName} at ${c.time}`).join(", ")}.`
-        : `No classes today. You're completely free on the schedule.`;
+    const classTxt = formatClassesNaturally(ctx.todayClasses);
 
-    const taskTxt =
-      ctx.todayDeadlines.length > 0
-        ? `You've got ${ctx.todayDeadlines.length} deadline today: ${ctx.todayDeadlines[0].title}.`
-        : `Zero deadlines for today. Clean slate.`;
+    let deadlineTxt = "Zero deadlines today. Clean slate.";
+    if (ctx.todayDeadlines.length > 0) {
+      deadlineTxt = `You've got one deadline tonight: ${ctx.todayDeadlines[0].title}.`;
+    } else if (ctx.upcomingDeadlines.length > 0) {
+      deadlineTxt = `Nothing urgent tonight, but keep ${ctx.upcomingDeadlines[0].title} on your radar for tomorrow.`;
+    }
 
-    return `Morning Shanmukha. ${bikeTxt}
+    const newsTxt = ctx.news && ctx.news.length > 0
+      ? `Quick tech highlight: ${ctx.news[0].title.slice(0, 90)}. Worth checking out if you get a minute.`
+      : "Tech front is pretty quiet this morning.";
+
+    return `Morning bro. ${bikeTxt}
 
 ${classTxt}
 
-${taskTxt} Overall attendance is sitting strong at ${ctx.attendance.overallPercentage}% with ${ctx.attendance.bunksRemaining} safe bunks left.
+${deadlineTxt} Attendance is sitting safe at ${ctx.attendance.overallPercentage}% with ${ctx.attendance.bunksRemaining} safe bunks left.
 
-Today's focus: Do the next useful thing and get the important stuff handled early. You're good to go.`;
+${newsTxt}
+
+Today's focus: Get the important shit done before tonight-you starts negotiating with tomorrow-you. You're good to go.`;
   }
 }
 
