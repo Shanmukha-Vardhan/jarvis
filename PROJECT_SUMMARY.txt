@@ -1,0 +1,188 @@
+================================================================================
+                    JARVIS / FRIDAY - PERSONAL AI CO-PILOT
+                           PROJECT COMPLETE SUMMARY
+================================================================================
+
+User: Shanmukha Vardhan
+University: GITAM University, Rushikonda, Visakhapatnam (B.Tech CSE - 7th Sem)
+Commute: Sai Nagar, Gopalapatnam -> GITAM Rushikonda (~40 minutes by bike)
+Generated Date: September 28, 2026
+
+--------------------------------------------------------------------------------
+1. LIVE URLS & REPOSITORIES
+--------------------------------------------------------------------------------
+
+- Production Website:  https://jarvis-eight-pearl.vercel.app
+- GitHub Repository:   https://github.com/Shanmukha-Vardhan/jarvis.git
+- Local Development:   http://localhost:3000
+
+--------------------------------------------------------------------------------
+2. LIVE API ENDPOINT DIRECTORY
+--------------------------------------------------------------------------------
+
+All endpoints are hosted live on Vercel at:
+Base URL: https://jarvis-eight-pearl.vercel.app
+
+1. Daily Briefing (Full JSON):
+   GET /api/daily-briefing
+   Description:
+     Returns the complete morning briefing data package including Gen-Z spoken
+     briefing text, bike decision, weather, classes, deadlines, attendance, and news.
+   Response Structure:
+     {
+       "status": "success",
+       "spoken_briefing": "Clean conversational text for Siri to speak aloud",
+       "speech": "Same clean text for backwards compatibility",
+       "text": "Same clean text",
+       "bike_decision": "TAKE_BIKE" | "SKIP_BIKE" | "CAUTION",
+       "bike_reason": "28°C, Mainly clear, 20% rain risk",
+       "priority": "Financial Management attendance",
+       "sections": {
+         "weather": true,
+         "classes": true,
+         "deadlines": false,
+         "upcoming_deadlines": true,
+         "attendance": true,
+         "news": true
+       },
+       "date": "2026-09-28",
+       "day": "Monday",
+       "weather": { ... },
+       "bikeDecision": { ... },
+       "todayClasses": [ ... ],
+       "deadlines": { "today": [ ... ], "upcoming": [ ... ] },
+       "attendance": { ... },
+       "news": [ ... ]
+     }
+
+2. Fast Plain-Text Audio Briefing (For Siri & Apple Shortcuts):
+   GET /api/daily-briefing?format=text
+   Description:
+     Returns ONLY the clean plain-text spoken briefing (text/plain).
+     Zero JSON parsing needed in Apple Shortcuts. Perfect for instant "Speak Text".
+
+3. Two-Way Voice Commands ("Hey Siri, JARVIS"):
+   POST /api/voice-command
+   Headers: Content-Type: application/json
+   Request Body:
+     { "text": "tomorrow at 12 i should submit ASTMA lab assignment" }
+   Response:
+     {
+       "action": "ADD_TASK" | "CHECK_SCHEDULE" | "CHECK_BIKE" | "CHECK_ATTENDANCE" | "CHAT",
+       "reply": "Conversational reply spoken by Siri",
+       "taskData": { ... }
+     }
+
+4. Tasks & Natural Language Task Parser:
+   GET /api/tasks
+     Returns all active and completed tasks from Firebase Firestore.
+   POST /api/tasks
+     Accepts either natural language prompt:
+       { "prompt": "Wednesday 10am project review with professor" }
+     Or manual task parameters:
+       { "title": "Project Review", "course": "Project Evaluation", "dueDate": "2026-09-30T10:00", "priority": "high" }
+   PATCH /api/tasks
+     Update task completion status: { "id": "...", "completed": true }
+   DELETE /api/tasks?id=...
+     Permanently removes a task.
+
+5. Live Weather & Commute Verdict:
+   GET /api/weather
+   Description:
+     Returns high-resolution Open-Meteo weather data for Rushikonda and calculates
+     bike commute feasibility.
+
+6. Live Attendance Sync:
+   GET /api/attendance
+   Description:
+     Direct real-time proxy to GITAM Tracker API:
+     https://gitamtracker.vercel.app/api/attendance?key=vardhan_gt_attendance_key_2026
+
+7. Weekly Timetable:
+   GET /api/schedule
+   Description:
+     Returns full Semester 7 timetable for Monday to Friday.
+
+8. Weekly Review (Sunday 7:30 PM):
+   GET /api/weekly-review
+   Description:
+     Sunday evening review of completed tasks, attendance balance, and upcoming week.
+
+--------------------------------------------------------------------------------
+3. KEY LOGIC & INTELLIGENCE ENGINES BUILT
+--------------------------------------------------------------------------------
+
+A. Gen-Z Persona & Spoken Briefing Engine (src/lib/gemini.ts):
+   - Zero robotic butler talk ("Boss", "Rise and shine", "I give you the green light").
+   - Pure casual friend tone ("Morning bro", "Weather's pretty chill", "Real talk",
+     "down bad at 68.8%", "don't even think about bunking that 8 AM", "lock in").
+   - Summarizes classes naturally: never reads out 6 robotic start/end timestamps.
+   - Kept strictly under 120 words (under 50 seconds when spoken aloud).
+   - Sanitized spoken text: no quote marks, no escaped characters, no asterisks.
+
+B. Smart Attendance Alerting Rule:
+   - Overall attendance is 88.8% with 47 safe bunks.
+   - BUT Financial Management (19EID401) is sitting in the danger zone at 68.8%
+     (< 75% cutoff, needing 8 consecutive attendances).
+   - The briefing specifically warns Shanmukha not to bunk his 8 AM Financial
+     Management class.
+   - If all subjects are healthy (>= 75%), attendance is omitted from the spoken briefing.
+
+C. Deterministic IST Timezone & Date Parser:
+   - Built in src/lib/gemini.ts with getNowIST() and parseTaskLocally().
+   - Resolves all dates in Asia/Kolkata (UTC+5:30) wall-clock time.
+   - Fixed bug where "tomorrow at 12" became 6:30 AM (UTC offset error): now strictly
+     evaluates to 12:00 PM noon.
+   - Fixed bug where "Wednesday 10am" became Tuesday noon: now maps exact calendar
+     dates (e.g. 2026-09-30T10:00).
+
+D. Bike & Commute Decision Engine (src/lib/services.ts):
+   - Commute: 40-minute ride from Sai Nagar, Gopalapatnam to GITAM University Rushikonda.
+   - Evaluates real-time Open-Meteo ECMWF data.
+   - Commute rule: Take the bike if rain risk < 60% and 0.0 mm rainfall.
+   - Skip bike only if rain probability >= 60% or heavy precipitation.
+
+E. News Filter & Relevance Scorer (src/lib/services.ts):
+   - Queries GNews technology headlines and scores them against high-priority keywords
+     (AI, Apple, LLMs, OpenAI, software engineering, robotics, developer tools).
+   - Filters out irrelevant clickbait (sneaker colorways, beer ads, sports gossip).
+   - Returns top 1-3 high-relevance articles; includes single top headline in briefing.
+
+F. Resilient Gemini Multi-Model Failover:
+   - Primary model: gemini-3.1-flash-lite (fast sub-2s responses, healthy quota).
+   - Automatic fallback to gemini-flash-latest, gemini-3.8-flash, gemini-3.5-flash-lite.
+   - Built-in Gen-Z programmatic fallback builder (buildGenZBriefingFallback) ensures
+     zero downtime or robotic output even during Google API demand spikes.
+
+--------------------------------------------------------------------------------
+4. FRONTEND DASHBOARD (src/app/page.tsx)
+--------------------------------------------------------------------------------
+
+- Design Aesthetic: Premium minimalist white canvas with crisp black typography,
+  subtle glass borders, and reactive micro-interactions.
+- Components Included:
+  1. Daily Briefing Card: Live status badge, spoken script, Web Speech API player.
+  2. Commute & Bike Card: Instant verdict badge, temperature, rain risk, commute duration.
+  3. Magic Quick-Add Bar: Natural language task input with instant AI extraction.
+  4. Active Tasks List: Due dates, course badges, priority pills, completion toggle, deletion.
+  5. Interactive Timetable: Day selector tabs, period tags, course names, room numbers.
+  6. Attendance Tracker: 88.8% progress bar, 47 safe bunks, shortage warnings for FM.
+  7. News Digest: Top tech articles with source attribution and external links.
+  8. Voice Command Simulator: Test Siri queries directly in the web browser.
+  9. Apple Shortcuts Modal: Instant copy-paste instructions for iPhone automation.
+
+--------------------------------------------------------------------------------
+5. APPLE SHORTCUTS GENERATION PROMPTS
+--------------------------------------------------------------------------------
+
+Prompt to paste in macOS/iOS Shortcuts "Describe a shortcut" box:
+
+- For Morning Briefing (6:30 AM Wake-Up Audio):
+  "Send a GET request to https://jarvis-eight-pearl.vercel.app/api/daily-briefing?format=text and speak the text result out loud using Speak Text."
+
+- For Two-Way Interactive Voice ("Hey Siri, JARVIS"):
+  "Dictate text from microphone. Send a POST request to https://jarvis-eight-pearl.vercel.app/api/voice-command with a JSON body where the key 'text' is the dictated text. Then get the dictionary value for the key 'reply' from the response and speak it out loud."
+
+================================================================================
+                           END OF PROJECT SUMMARY
+================================================================================
