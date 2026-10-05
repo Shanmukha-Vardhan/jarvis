@@ -6,10 +6,21 @@ import { generateDailyBriefingResult, getNowIST, BriefingContext } from "@/lib/g
 
 export const dynamic = "force-dynamic";
 
+interface CachedBriefing {
+  timestamp: number;
+  dateKey: string;
+  taskHash: string;
+  briefing: any;
+}
+
+let briefingCache: CachedBriefing | null = null;
+const CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format"); // "text" or "json"
+    const forceRefresh = searchParams.get("refresh") === "true";
 
     const ist = getNowIST();
     const currentDay = ist.dayOfWeek;
@@ -82,8 +93,27 @@ export async function GET(request: Request) {
       },
     };
 
-    // 6. Generate AI Briefing
-    const briefingResult = await generateDailyBriefingResult(ctx);
+    // 6. Generate AI Briefing (with smart 60-min in-memory cache to prevent quota waste)
+    const taskHash = activeTasks.map((t) => `${t.id}-${t.dueDate}`).join(",");
+    const isCacheValid =
+      !forceRefresh &&
+      briefingCache !== null &&
+      briefingCache.dateKey === ist.currentDateStr &&
+      briefingCache.taskHash === taskHash &&
+      Date.now() - briefingCache.timestamp < CACHE_TTL_MS;
+
+    let briefingResult;
+    if (isCacheValid && briefingCache) {
+      briefingResult = briefingCache.briefing;
+    } else {
+      briefingResult = await generateDailyBriefingResult(ctx);
+      briefingCache = {
+        timestamp: Date.now(),
+        dateKey: ist.currentDateStr,
+        taskHash,
+        briefing: briefingResult,
+      };
+    }
     const speechText = briefingResult.spoken_briefing;
 
     if (format === "text") {
